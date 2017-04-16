@@ -550,7 +550,7 @@ func (s *Server) HandleGetFile(w http.ResponseWriter, r *Request) {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.logDebug("HTTP %s request URL: '%s', Host: '%s', Path: '%s', Referer: '%s', Accept: '%s'", r.Method, r.RequestURI, r.URL.Host, r.URL.Path, r.Referer(), r.Header.Get("Accept"))
 
-	uri, err := api.Parse(strings.TrimLeft(r.URL.Path, "/"))
+	uri, err := api.Parse(toBZZ(r.Host, r.URL.Path))
 	if err != nil {
 		s.logError("Invalid URI %q: %s", r.URL.Path, err)
 		http.Error(w, fmt.Sprintf("Invalid bzz URI: %s", err), http.StatusBadRequest)
@@ -608,6 +608,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method "+r.Method+" is not supported.", http.StatusMethodNotAllowed)
 
+	}
+}
+
+func toBZZ(host string, path string) string {
+	parts := strings.Split(host, ".")
+	domain := strings.Join(parts[:len(parts)-2], ".")
+	if path == "" {
+		return (fmt.Sprintf("bzz:/%s", domain))
+	} else {
+		return (fmt.Sprintf("bzz:/%s/%s", domain, strings.TrimLeft(path, "/")))
 	}
 }
 
