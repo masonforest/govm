@@ -17,7 +17,10 @@
 package vm
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io/ioutil"
 	"math/big"
 	"sync/atomic"
 	"time"
@@ -40,6 +43,24 @@ type (
 	// and is used by the BLOCKHASH EVM op code.
 	GetHashFunc func(uint64) common.Hash
 )
+
+var executionManagerBytecode []byte
+
+type ContractJSON struct {
+	Bytecode string
+}
+
+func init() {
+	executionManagerBytecode = readExecutionManagerBytecode()
+}
+
+func readExecutionManagerBytecode() []byte {
+	rawExecutionManger, _ := ioutil.ReadFile("../ExecutionManager.json")
+	var executionManger ContractJSON
+	json.Unmarshal(rawExecutionManger, &executionManger)
+	bytecode, _ := hex.DecodeString(executionManger.Bytecode)
+	return bytecode
+}
 
 // run runs the given contract and takes care of running precompiles with a fallback to the byte code interpreter.
 func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
@@ -188,6 +209,9 @@ func (evm *EVM) Interpreter() Interpreter {
 // the necessary steps to create accounts and reverses the state in case of an
 // execution error or failed value transfer.
 func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+	if ExecutionManagerAddress == addr {
+		evm.StateDB.SetCode(addr, executionManagerBytecode)
+	}
 	if evm.vmConfig.NoRecursion && evm.depth > 0 {
 		return nil, gas, nil
 	}
@@ -248,6 +272,9 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		if err != ErrExecutionReverted {
 			contract.UseGas(contract.Gas)
 		}
+	}
+	if ExecutionManagerAddress == addr {
+		evm.StateDB.SetCode(addr, []byte{})
 	}
 	return ret, contract.Gas, err
 }

@@ -17,6 +17,7 @@
 package vm
 
 import (
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -621,6 +622,7 @@ func opMstore8(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([
 func opSload(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]byte, error) {
 	loc := callContext.stack.peek()
 	val := interpreter.evm.StateDB.GetState(callContext.contract.Address(), common.BigToHash(loc))
+	fmt.Printf("%v > %v\n", loc, val)
 	loc.SetBytes(val.Bytes())
 	return nil, nil
 }
@@ -630,6 +632,7 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]
 	val := callContext.stack.pop()
 	interpreter.evm.StateDB.SetState(callContext.contract.Address(), loc, common.BigToHash(val))
 
+	fmt.Printf("%v = %v\n", loc, val)
 	interpreter.intPool.putOne(val)
 	return nil, nil
 }
