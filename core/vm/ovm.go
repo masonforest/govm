@@ -2,8 +2,10 @@ package vm
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
-	"fmt"
+	"io/ioutil"
 	"math/big"
 	"os"
 	"reflect"
@@ -32,12 +34,26 @@ var funcs = map[string]ovmOperation{
 	"CREATE2": create2,
 }
 var methodIds map[[4]byte]ovmOperation
+var executionMangerBytecode []byte
+
+type ContractJSON struct {
+	Bytecode string
+}
 
 func init() {
+	executionMangerBytecode = readExecutionManagerBytecode()
 	methodIds = make(map[[4]byte]ovmOperation, len(funcs))
 	for methodName, f := range funcs {
 		methodIds[OvmMethodId(methodName)] = f
 	}
+}
+
+func readExecutionManagerBytecode() []byte {
+	rawExecutionManger, _ := ioutil.ReadFile("../ExecutionManager.json")
+	var executionManger ContractJSON
+	json.Unmarshal(rawExecutionManger, &executionManger)
+	bytecode, _ := hex.DecodeString(executionManger.Bytecode)
+	return bytecode
 }
 
 func OvmMethodId(methodName string) [4]byte {
@@ -49,31 +65,28 @@ func OvmMethodId(methodName string) [4]byte {
 
 func isOvmOperation(contract *Contract, input []byte) bool {
 	if contract.Address() != ExecutionManagerAddress {
-		// fmt.Printf("%020x == %020x\n", contract.Address(), ExecutionManagerAddress)
 		return false
 	} else {
-		// fmt.Printf("%020x == %020x\n", contract.Address(), ExecutionManagerAddress)
 	}
 	if len(input) < 4 {
 		return false
 	}
 	for methodId := range methodIds {
-		// fmt.Printf("MethodId: %x\n", input[:4])
 		if bytes.Equal(input[0:4], methodId[:]) {
-			// fmt.Println("isOvmOperation!")
 			return true
 		} else {
-			// fmt.Printf("not MethodId: %x\n", methodId)
 		}
 	}
-	// fmt.Println("not methodId")
 	return false
 }
 
 func runOvmOperation(input []byte, evm *EVM, caller ContractRef, contract *Contract) (ret []byte, err error) {
 	var methodId [4]byte
 	copy(methodId[:], input[:4])
-	return methodIds[methodId](evm, caller, contract, input)
+	evm.StateDB.SetCode(contract.Address(), executionMangerBytecode)
+	ret, err = methodIds[methodId](evm, caller, contract, input)
+	evm.StateDB.SetCode(contract.Address(), []byte{})
+	return ret, err
 }
 
 func create(evm *EVM, caller ContractRef, contract *Contract, input []byte) (ret []byte, err error) {
@@ -88,7 +101,6 @@ func create(evm *EVM, caller ContractRef, contract *Contract, input []byte) (ret
 	activeContractRef := &Contract{self: AccountRef(activeContract)}
 
 	_, address, _, _ := evm.Create(activeContractRef, initCode, contract.Gas, big.NewInt(0))
-	// key :=  common.BigToHash(big.NewInt(0))
 
 	emitActiveContract(evm, contract, caller.Address())
 	emitCreatedContract(evm, contract, caller.Address(), address, [32]byte{1})
@@ -103,19 +115,14 @@ func create2(evm *EVM, caller ContractRef, contract *Contract, input []byte) (re
 	}
 	contract.UseGas(gas)
 
-	// if isPure(evm, caller, gas, initCode) {
 	_, address, _, _ := evm.Create2(caller, initCode, contract.Gas, big.NewInt(0), big.NewInt(0))
 	return address.Bytes(), nil
-	// } else {
-	// 	return nil, ErrImpureInitcode
-	// }
 }
 
 func call(evm *EVM, caller ContractRef, contract *Contract, input []byte) (ret []byte, err error) {
 
 	to := common.BytesToAddress(input[0:20])
 	args := input[20:]
-	// fmt.Printf("Calling address %x\n", to.Bytes())
 	ret, _, err = evm.Call(contract, to, args, contract.Gas, big.NewInt(0))
 	return ret, err
 }
@@ -123,14 +130,12 @@ func call(evm *EVM, caller ContractRef, contract *Contract, input []byte) (ret [
 func sLoad(evm *EVM, caller ContractRef, contract *Contract, input []byte) (ret []byte, err error) {
 	key := common.BytesToHash(input[4:36])
 	val := evm.StateDB.GetState(caller.Address(), key)
-	// fmt.Printf("%x > %x\n", key, val)
 	return val.Bytes(), nil
 }
 func sStore(evm *EVM, caller ContractRef, contract *Contract, input []byte) (ret []byte, err error) {
 	key := common.BytesToHash(input[4:36])
 	val := common.BytesToHash(input[36:68])
 	evm.StateDB.SetState(caller.Address(), key, val)
-	// fmt.Printf("%x = %x\n", key, val)
 	return []byte{}, nil
 }
 
@@ -174,9 +179,6 @@ func emitCreatedContract(
 }
 
 func emitEvent(evm *EVM, contract *Contract, topic string, data []byte) {
-	fmt.Printf("topic %s\n", topic)
-	fmt.Printf("hash: %x\n", crypto.Keccak256([]byte(topic)))
-	// fmt.Printf("topic2 %s\n", "CreatedContract(address,address,bytes32)")
 	topics := []common.Hash{common.BytesToHash(crypto.Keccak256([]byte(topic)))}
 	evm.StateDB.AddLog(&types.Log{
 		Address:     contract.Address(),
