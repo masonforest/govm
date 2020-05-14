@@ -43,6 +43,10 @@ type (
 
 // run runs the given contract and takes care of running precompiles with a fallback to the byte code interpreter.
 func run(evm *EVM, contract *Contract, input []byte, readOnly bool) ([]byte, error) {
+	if contract.Address() == StateManagerAddress {
+		return callStateManager(input, evm, contract)
+	}
+
 	if contract.CodeAddr != nil {
 		precompiles := PrecompiledContractsHomestead
 		if evm.chainRules.IsByzantium {
@@ -203,7 +207,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		to       = AccountRef(addr)
 		snapshot = evm.StateDB.Snapshot()
 	)
-	if !evm.StateDB.Exist(addr) {
+	if !evm.StateDB.Exist(addr) && addr != StateManagerAddress {
 		precompiles := PrecompiledContractsHomestead
 		if evm.chainRules.IsByzantium {
 			precompiles = PrecompiledContractsByzantium
@@ -451,6 +455,11 @@ func (evm *EVM) create(caller ContractRef, codeAndHash *codeAndHash, gas uint64,
 	}
 	return ret, address, contract.Gas, err
 
+}
+
+// TODO Pass in actual contract ref
+func (evm *EVM) OvmCreate(caller ContractRef, contractAddr common.Address, code []byte, gas uint64, value *big.Int) (ret []byte, retContractAddr common.Address, leftOverGas uint64, err error) {
+	return evm.create(caller, &codeAndHash{code: code}, gas, value, contractAddr)
 }
 
 // Create creates a new contract using code as deployment code.
